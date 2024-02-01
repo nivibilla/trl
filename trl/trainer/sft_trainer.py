@@ -270,7 +270,7 @@ class SFTTrainer(Trainer):
                     train_dataset,
                     tokenizer,
                     packing,
-                    non_contaminated_packing
+                    non_contaminated_packing,
                     dataset_text_field,
                     max_seq_length,
                     formatting_func,
@@ -287,7 +287,7 @@ class SFTTrainer(Trainer):
                         _eval_dataset,
                         tokenizer,
                         packing,
-                        non_contaminated_packing
+                        non_contaminated_packing,
                         dataset_text_field,
                         max_seq_length,
                         formatting_func,
