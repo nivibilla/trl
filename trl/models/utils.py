@@ -29,10 +29,10 @@ class ChatMlSpecialTokens:
     def chat_template(self):
         return (
             "{% for message in messages %}"
-            f"{{'{self.bos_token}' + message['role'] + '\n' + message['content'] + eos_token + '\n'}}"
+            f"{{{{'{self.bos_token}' + message['role'] + '\n' + message['content'] + '{self.eos_token}' + '\n'}}}}"
             "{% endfor %}"
             "{% if add_generation_prompt %}"
-            f"{{ '{self.assistant}\n' }}"
+            f"{{{{ '{self.assistant}\n' }}}}"
             "{% endif %}"
         )
 
@@ -76,5 +76,10 @@ def setup_chat_format(
     model.resize_token_embeddings(
         len(tokenizer), pad_to_multiple_of=resize_to_multiple_of if resize_to_multiple_of is not None else None
     )
+    # Make sure to update the generation config to use the new eos & bos token
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.bos_token_id = tokenizer.bos_token_id
+        model.generation_config.eos_token_id = tokenizer.eos_token_id
+        model.generation_config.pad_token_id = tokenizer.pad_token_id
 
     return model, tokenizer

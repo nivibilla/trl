@@ -55,7 +55,7 @@ class RewardTrainer(Trainer):
 
     def __init__(
         self,
-        model: Union[PreTrainedModel, nn.Module] = None,
+        model: Optional[Union[PreTrainedModel, nn.Module]] = None,
         args: Optional[RewardConfig] = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
@@ -99,6 +99,8 @@ class RewardTrainer(Trainer):
                 The optimizer and scheduler to use for training.
             preprocess_logits_for_metrics (`Callable[[torch.Tensor, torch.Tensor], torch.Tensor]`):
                 The function to use to preprocess the logits before computing the metrics.
+            max_length (`int`, defaults to `None`):
+                The maximum length of the sequences in the batch. This argument is required if you want to use the default data collator.
             peft_config (`Dict`, defaults to `None`):
                 The PEFT configuration to use for training. If you pass a PEFT configuration, the model will be wrapped in a PEFT model.
         """

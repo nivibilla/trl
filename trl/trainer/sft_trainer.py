@@ -19,6 +19,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+from accelerate.state import PartialState
 from datasets import Dataset
 from datasets.arrow_writer import SchemaInferenceError
 from datasets.builder import DatasetGenerationError
@@ -123,8 +124,8 @@ class SFTTrainer(Trainer):
 
     def __init__(
         self,
-        model: Union[PreTrainedModel, nn.Module, str] = None,
-        args: TrainingArguments = None,
+        model: Optional[Union[PreTrainedModel, nn.Module, str]] = None,
+        args: Optional[TrainingArguments] = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
@@ -216,7 +217,7 @@ class SFTTrainer(Trainer):
                         model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
                 model = get_peft_model(model, peft_config)
-                if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
+                if args is not None and args.bf16 and getattr(model, "is_loaded_in_4bit", False):
                     peft_module_casting_to_bf16(model)
 
         if tokenizer is None:
@@ -260,31 +261,16 @@ class SFTTrainer(Trainer):
             if data_collator is None:
                 data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-        if dataset_kwargs is None:
-            dataset_kwargs = {}
-        if train_dataset is not None:
-            train_dataset = self._prepare_dataset(
-                train_dataset,
-                tokenizer,
-                packing,
-                non_contaminated_packing,
-                dataset_text_field,
-                max_seq_length,
-                formatting_func,
-                num_of_sequences,
-                chars_per_token,
-                remove_unused_columns=args.remove_unused_columns if args is not None else True,
-                **dataset_kwargs,
-            )
-        if eval_dataset is not None:
-            _multiple = isinstance(eval_dataset, dict)
-            _eval_datasets = eval_dataset if _multiple else {"singleton": eval_dataset}
-            for _eval_dataset_name, _eval_dataset in _eval_datasets.items():
-                _eval_datasets[_eval_dataset_name] = self._prepare_dataset(
-                    _eval_dataset,
+        # Pre-process the datasets only once per node. The remaining processes will use the cache.
+        with PartialState().local_main_process_first():
+            if dataset_kwargs is None:
+                dataset_kwargs = {}
+            if train_dataset is not None:
+                train_dataset = self._prepare_dataset(
+                    train_dataset,
                     tokenizer,
                     packing,
-                    non_contaminated_packing,
+                    non_contaminated_packing
                     dataset_text_field,
                     max_seq_length,
                     formatting_func,
@@ -293,8 +279,25 @@ class SFTTrainer(Trainer):
                     remove_unused_columns=args.remove_unused_columns if args is not None else True,
                     **dataset_kwargs,
                 )
-            if not _multiple:
-                eval_dataset = _eval_datasets["singleton"]
+            if eval_dataset is not None:
+                _multiple = isinstance(eval_dataset, dict)
+                _eval_datasets = eval_dataset if _multiple else {"singleton": eval_dataset}
+                for _eval_dataset_name, _eval_dataset in _eval_datasets.items():
+                    _eval_datasets[_eval_dataset_name] = self._prepare_dataset(
+                        _eval_dataset,
+                        tokenizer,
+                        packing,
+                        non_contaminated_packing
+                        dataset_text_field,
+                        max_seq_length,
+                        formatting_func,
+                        num_of_sequences,
+                        chars_per_token,
+                        remove_unused_columns=args.remove_unused_columns if args is not None else True,
+                        **dataset_kwargs,
+                    )
+                if not _multiple:
+                    eval_dataset = _eval_datasets["singleton"]
 
         if tokenizer.padding_side is not None and tokenizer.padding_side != "right":
             warnings.warn(
@@ -444,12 +447,12 @@ class SFTTrainer(Trainer):
 
         signature_columns = ["input_ids", "labels", "attention_mask"]
 
-        extra_colmuns = list(set(dataset.column_names) - set(signature_columns))
+        extra_columns = list(set(dataset.column_names) - set(signature_columns))
 
-        if not remove_unused_columns and len(extra_colmuns) > 0:
+        if not remove_unused_columns and len(extra_columns) > 0:
             warnings.warn(
                 "You passed `remove_unused_columns=False` on a non-packed dataset. This might create some issues with the default collator and yield to errors. If you want to "
-                f"inspect dataset other columns (in this case {extra_colmuns}), you can subclass `DataCollatorForLanguageModeling` in case you used the default collator and create your own data collator in order to inspect the unused dataset columns."
+                f"inspect dataset other columns (in this case {extra_columns}), you can subclass `DataCollatorForLanguageModeling` in case you used the default collator and create your own data collator in order to inspect the unused dataset columns."
             )
 
         tokenized_dataset = dataset.map(
